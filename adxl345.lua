@@ -24,6 +24,7 @@ ADXL345 = {
    POWER_CTL_MEASURE = 0x08,-- enable measurement
 
    REG_DATA_FORMAT = 0x31,  -- data format control
+   DATA_FORMAT_FULL_RES = 0x08, -- note: not applicable to 2g
 
    REG_DATA_X0 = 0x32,      -- X-axis data 0
    REG_DATA_X1 = 0x33,      -- X-axis data 0
@@ -40,6 +41,15 @@ function check_for_sensor(addr)
    local result = string.unpack("B", buffer)
    return (status and #buffer >= 1 and
               ADXL345.DEVID_RESULT == string.unpack("B", buffer))
+end
+
+function set_full_resolution(addr)
+   local status =
+      i2c.txn(i2c.tx(addr, ADXL345.REG_DATA_FORMAT,
+                     ADXL345.DATA_FORMAT_FULL_RES))
+   -- todo: read first, to avoid unsetting other bits
+
+   return status
 end
 
 function enable_measurement(addr)
@@ -62,7 +72,6 @@ function get_reading(addr)
    local status, buffer =
       i2c.txn(i2c.tx(addr, ADXL345.REG_DATA_X0),
               i2c.rx(addr, 6))
-   -- todo: verify that these come out in the order we expect them
    if status and #buffer == 6 then
       return string.unpack("i2i2i2", buffer) -- x,y,z
    end

@@ -32,6 +32,20 @@ ADXL345 = {
    REG_DATA_Y1 = 0x35,      -- X-axis data 0
    REG_DATA_Z0 = 0x36,      -- X-axis data 0
    REG_DATA_Z1 = 0x37,      -- X-axis data 0
+
+   REG_FIFO_CTL = 0x38,     -- FIFO setup
+   FIFO_CTL_BYPASS = 0x00,  -- no FIFO used
+   FIFO_CTL_FIFO = 0x40,    -- FIFO up to 32 samples
+   FIFO_CTL_STREAM = 0x80,  -- FIFO latest 32 samples
+   FIFO_CTL_TRIGGER = 0xc0, -- FIFO trigger 32 samples
+   FIFO_CTL_SAMPLE_MASK = 0x1F, -- number of sample for watermark
+
+   REG_FIFO_STATUS = 0x39,  -- FIFO status
+
+   REG_INT_ENABLE = 0x2E,   -- interrupt enable
+   INT_ENABLE_WATERMARK = 0x02, -- watermark interrupt
+
+   REG_INT_SOURCE = 0x30,   -- source of interrupt
 }
 
 function check_for_sensor(addr)
@@ -77,6 +91,36 @@ function get_reading(addr)
    end
 end
 
+function enable_fifo(addr, watermark, interrupt)
+   local fifoval = ADXL345.FIFO_CTL_FIFO |
+      (watermark & ADXL345.FIFO_CTL_SAMPLE_MASK)
+   print("fifoval: "..fifoval)
+   local status = i2c.txn(i2c.tx(addr, ADXL345.REG_FIFO_CTL, fifoval))
+
+   if status and interrupt then
+      print("enabling watermark interrupt")
+      status = i2c.txn(i2c.tx(addr, ADXL345.REG_INT_ENABLE,
+                              ADXL345.INT_ENABLE_WATERMARK))
+   end
+   return status
+end
+
+function get_fifo_status(addr)
+   local status, buffer = i2c.txn(i2c.tx(addr, ADXL345.REG_FIFO_STATUS),
+                                  i2c.rx(addr, 1))
+   if status then
+      return string.unpack("B", buffer)
+   end
+end
+
+function get_interrupt_source(addr)
+   local status, buffer = i2c.txn(i2c.tx(addr, ADXL345.REG_INT_SOURCE),
+                                  i2c.rx(addr, 1))
+   if status then
+      return string.unpack("B", buffer)
+   end
+end
+
 he.power_set(true)
 
 if check_for_sensor(ADXL345.ADDR_LOW) then
@@ -88,18 +132,48 @@ end
 if activeAddress then
    print("FOUND at address "..activeAddress)
 
-   if enable_measurement(activeAddress) then
-      local x, y, z = get_reading(activeAddress)
-      disable_measurement(activeAddress)
+   local x,y,z = 0,0,0
+   local samples = 10
 
-      if x and y and z then
-         print("Read ("..x..", "..y..", "..z..")")
+   get_reading(activeAddress) -- clear old data
+
+   if enable_fifo(activeAddress, samples, true) then
+      he.interrupt_cfg("int1", "e", 10)
+      if enable_measurement(activeAddress) then
+         -- waiting 0.5s, even though interrupt should come in 0.1s
+         time, new_events, events = he.wait{time=500+he.now()}
+         disable_measurement(activeAddress)
+
+         local fifostat = get_fifo_status(activeAddress)
+
+         if new_events then --or fifostat > samples then
+            for i=1,samples,1 do
+               local nx,ny,nz = get_reading(activeAddress)
+               if nx and ny and nz then
+                  x = x+nx
+                  y = y+ny
+                  z = z+nz
+                  print("   "..i..": "..x.." "..y.." "..z)
+               else
+                  print("failed to read "..i)
+               end
+            end
+
+            x = x / samples
+            y = y / samples
+            z = z / samples
+
+            print("Read ("..x..", "..y..", "..z..")")
+         else
+            print("Timed out waiting for interrupt "..fifostat)
+         end
       else
-         print("Failed to read")
+         print("Failed to enable measurement")
       end
    else
-      print("Failed to enable measurement")
+      print("Failed to enable interrupt")
    end
+
 else
    print("NOT FOUND")
 end

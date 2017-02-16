@@ -10,7 +10,7 @@ ADXL345 = {
    -- address when SDO/ALT ADDRESS pin is tied to GND
    ADDR_LOW = 0x53,
 
-   --- REGISTERS
+   --- REGISTERS (and their associated values)
 
    REG_DEVID = 0x00,
    DEVID_RESULT = 0xE5, -- expected result of reading REG_DEVID
@@ -41,6 +41,7 @@ ADXL345 = {
    FIFO_CTL_SAMPLE_MASK = 0x1F, -- number of sample for watermark
 
    REG_FIFO_STATUS = 0x39,  -- FIFO status
+   FIFO_STATUS_ENTRIES_MASK = 0x3F, -- entry count
 
    REG_INT_ENABLE = 0x2E,   -- interrupt enable
    INT_ENABLE_WATERMARK = 0x02, -- watermark interrupt
@@ -94,11 +95,9 @@ end
 function enable_fifo(addr, watermark, interrupt)
    local fifoval = ADXL345.FIFO_CTL_FIFO |
       (watermark & ADXL345.FIFO_CTL_SAMPLE_MASK)
-   print("fifoval: "..fifoval)
    local status = i2c.txn(i2c.tx(addr, ADXL345.REG_FIFO_CTL, fifoval))
 
    if status and interrupt then
-      print("enabling watermark interrupt")
       status = i2c.txn(i2c.tx(addr, ADXL345.REG_INT_ENABLE,
                               ADXL345.INT_ENABLE_WATERMARK))
    end
@@ -113,6 +112,10 @@ function get_fifo_status(addr)
    end
 end
 
+function get_fifo_entry_count(addr)
+   return (get_fifo_status(addr) or 0) & ADXL345.FIFO_STATUS_ENTRIES_MASK
+end
+
 function get_interrupt_source(addr)
    local status, buffer = i2c.txn(i2c.tx(addr, ADXL345.REG_INT_SOURCE),
                                   i2c.rx(addr, 1))
@@ -121,61 +124,87 @@ function get_interrupt_source(addr)
    end
 end
 
-he.power_set(true)
+-- address we expect ADXL345 to be using
+addr = ADXL345.ADDR_LOW
 
-if check_for_sensor(ADXL345.ADDR_LOW) then
-   activeAddress = ADXL345.ADDR_LOW
-elseif check_for_sensor(ADXL345.ADDR_HIGH) then
-   activeAddress = ADXL345.ADDR_HIGH
-end
+-- number of samples to average for a reading
+samples = 10
 
-if activeAddress then
-   print("FOUND at address "..activeAddress)
+-- time to wait for sample interrupt
+-- 10: default sample rate is 100Hz = 10ms/sample
+-- 2: timeout at twice as long as expected
+wait_time = (samples * 10) * 2
 
-   local x,y,z = 0,0,0
-   local samples = 10
+while true do
+   he.power_set(true)
+   cycle_now = he.now()
+   if check_for_sensor(addr) then
+      -- values we'll fill
+      local x,y,z = 0,0,0
 
-   get_reading(activeAddress) -- clear old data
+      local fifofill = get_fifo_entry_count(addr)
+      for i=0,fifofill+1,1 do
+         -- throw away old data; what's in the fifo, plus what's in
+         -- the DATA registers
+         get_reading(addr)
+      end
 
-   if enable_fifo(activeAddress, samples, true) then
-      he.interrupt_cfg("int1", "e", 10)
-      if enable_measurement(activeAddress) then
-         -- waiting 0.5s, even though interrupt should come in 0.1s
-         time, new_events, events = he.wait{time=500+he.now()}
-         disable_measurement(activeAddress)
+      -- setup fifo and interrupt hanlding
+      if enable_fifo(addr, samples, true) then
+         he.interrupt_cfg("int1", "r", samples)
 
-         local fifostat = get_fifo_status(activeAddress)
+         if enable_measurement(addr) then
+            -- this is likely to be a short wait, so use a fresh now
+            time, new_events, events = he.wait{time=wait_time+he.now()}
 
-         if new_events then --or fifostat > samples then
-            for i=1,samples,1 do
-               local nx,ny,nz = get_reading(activeAddress)
+            -- save power as soon as possible
+            disable_measurement(addr)
+
+            -- find out how many samples are available
+            if new_events and events.int1 then
+               read_samples = samples
+            else
+               read_samples = math.min(get_fifo_entry_count(addr) or 0,
+                                       samples)
+            end
+
+            -- read all samples
+            failures = 0
+            for i=1,read_samples,1 do
+               local nx,ny,nz = get_reading(addr)
                if nx and ny and nz then
                   x = x+nx
                   y = y+ny
                   z = z+nz
-                  print("   "..i..": "..x.." "..y.." "..z)
                else
-                  print("failed to read "..i)
+                  failures = failures+1
                end
             end
 
-            x = x / samples
-            y = y / samples
-            z = z / samples
+            -- average readings
+            x = x / (read_samples-failures)
+            y = y / (read_samples-failures)
+            z = z / (read_samples-failures)
+            quality = (read_samples-failures)/samples
 
-            print("Read ("..x..", "..y..", "..z..")")
+            -- report readings
+            he.send("x", cycle_now, "f", x)
+            he.send("y", cycle_now, "f", y)
+            he.send("z", cycle_now, "f", z)
+            he.send("q", cycle_now, "f", quality)
+
+            print("Reading: ("..x..", "..y..", "..z..") @ "..quality)
          else
-            print("Timed out waiting for interrupt "..fifostat)
+            print("Failed to enable measurement")
          end
       else
-         print("Failed to enable measurement")
+         print("Failed to enable interrupt")
       end
    else
-      print("Failed to enable interrupt")
+      print(string.format("ADXL345 did not respond at address 0x%X", addr))
    end
 
-else
-   print("NOT FOUND")
+   -- wait for a minute (from start of this cycle)
+   he.power_set(false)
+   he.wait{time=60*1000 + cycle_now}
 end
-
-he.power_set(false)

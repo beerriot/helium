@@ -79,13 +79,23 @@ end
 function get_reading(addr, coefficients)
    start_conversion(addr, MS5607.CONVERT_D1, MS5607.OSR_4096)
    he.wait{time=MS5607.CONV_TIME_4096 + he.now()}
-   uncompTemp = read_adc(addr, MS5607.OSR_4096)
+   local uncompPres = read_adc(addr, MS5607.OSR_4096)
 
    start_conversion(addr, MS5607.CONVERT_D2, MS5607.OSR_4096)
    he.wait{time=MS5607.CONV_TIME_4096 + he.now()}
-   uncompPres = read_adc(addr, MS5607.OSR_4096)
+   local uncompTemp = read_adc(addr, MS5607.OSR_4096)
 
-   return uncompTemp, uncompPres
+   -- first-order compensation
+   local dT = uncompTemp - coefficients[5] * 256
+   local temp =  2000 + dT * coefficients[6] / 8388608
+
+   local off = coefficients[2] * 131072 +
+      (coefficients[4] * dT) / 64
+   local sens = coefficients[1] * 65536 +
+      (coefficients[3] * dT) / 128
+   local pres = (uncompPres * sens / 2097152 - off) / 32768
+
+   return temp, pres
 end
 
 addr = MS5607.ADDR_HIGH

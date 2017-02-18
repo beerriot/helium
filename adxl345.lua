@@ -49,8 +49,9 @@ ADXL345 = {
    REG_INT_SOURCE = 0x30,   -- source of interrupt
 }
 
+-- Setup a sensor. Expects to ping the sensor, so turn the power on first.
 function ADXL345:new(address)
-   address = addres or ADXL345.ADDR_LOW
+   address = address or ADXL345.ADDR_LOW
    local o = {addr = address}
    setmetatable(o, self)
    self.__index = self

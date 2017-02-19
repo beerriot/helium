@@ -1,5 +1,5 @@
 TILT_SRCS=adxl345.lua queue.lua tilt.lua
-SINK_SRCS=ms5607.lua queue.lua sink.lua
+SINK_SRCS=ms5607.lua queue.lua lps22hb.lua sink.lua
 
 all: tilt_upload.lua sink_upload.lua
 

@@ -43,6 +43,9 @@ while true do
       end
    end
 
+   -- power down sensors as soon as possible
+   he.power_set(false)
+
    internal_temp = internal_temp / (samples-failures)
    internal_press = internal_press / (samples-failures)
    external_temp = external_temp / (samples-failures)
@@ -58,8 +61,7 @@ while true do
    print("External Temperature: "..(external_temp)..
             "C External Pressure: "..(external_press/100).."mbar")
 
-   -- power down while we wait until next reading
-   he.power_set(false)
+   -- wait a minute before reading again
    now = he.wait({time=60*1000 + now})
 
    -- doing this here just makes the top of the loop cleaner

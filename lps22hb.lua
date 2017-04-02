@@ -2,6 +2,8 @@
 --https://github.com/helium/api-examples/blob/faa2646d52b6938890f2e0e7d5c21a0b8c6baea4/script/lps22hb/lps22hb.lua
 -- Adapted to remove script, for inclusion in other scripts.
 
+i2c = he.i2c
+
 lps22hb = {
     DEFAULT_ADDRESS = 0x5C,
     WHO_AM_I        = 0x8F,

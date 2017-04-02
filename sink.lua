@@ -1,5 +1,9 @@
 -- Use the MS5607 to detect and report pressure on a sink.
--- This file is concatenated with ms5607.lua, queue.lua, lps22hb.lua.
+-- See https://blog.beerriot.com/2017/03/04/beer-iot-part-7/
+
+require('ms5607')
+require('queue')
+require('lps22hb')
 
 he.power_set(true)
 

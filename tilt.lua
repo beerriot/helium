@@ -1,5 +1,8 @@
 -- Use the ADXL3445 to detect and report the angle of a float.
--- This file is concatenated with adxl345.lua and queue.lua
+-- See https://blog.beerriot.com/2017/03/04/beer-iot-part-8/
+
+require('adxl345')
+require('queue')
 
 -- number of samples to average for a reading
 samples = 10
